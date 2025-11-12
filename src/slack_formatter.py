@@ -30,7 +30,7 @@ class SlackMessageFormatter:
         financial_status = order_summary.get("financial_status", "unknown")
 
         items_text_lines = [
-            f"• {item['quantity']}× {item['name']} (${item['price']:.2f})"
+            f"• {item['quantity']}× {item['name']} ({currency} {item['price']:.2f})"
             for item in top_items
         ]
         if items_count > len(top_items):
@@ -54,7 +54,7 @@ class SlackMessageFormatter:
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*Total Amount:*\n{currency} ${total:,.2f}",
+                        "text": f"*Total Amount:*\n{currency} {total:,.2f}",
                     },
                     {
                         "type": "mrkdwn",

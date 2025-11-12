@@ -14,6 +14,8 @@ from requests.exceptions import RequestException
 load_dotenv()
 
 API_KEY = os.getenv("ALLOY_API_KEY")
+SHOPIFY_CONNECTOR_ID = os.getenv("SHOPIFY_CONNECTOR_ID", "shopify")
+SLACK_CONNECTOR_ID = os.getenv("SLACK_CONNECTOR_ID", "slack")
 BASE_URL = "https://api.runalloy.com/2025-09"
 HEADERS = {
     "x-api-version": "2025-09",
@@ -72,8 +74,8 @@ def list_connectors() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]
 
     if response.status_code == 200:
         connectors = response.json().get("data", [])
-        shopify = next((c for c in connectors if c.get("id") == "shopify"), None)
-        slack = next((c for c in connectors if c.get("id") == "slack"), None)
+        shopify = next((c for c in connectors if c.get("id") == SHOPIFY_CONNECTOR_ID), None)
+        slack = next((c for c in connectors if c.get("id") == SLACK_CONNECTOR_ID), None)
         if shopify:
             print(f"✓ Shopify connector found: {shopify.get('name')}")
         if slack:
@@ -138,14 +140,14 @@ def _pick_first_credential(creds: List[Dict[str, Any]], connector_id: str) -> Op
     return None
 
 
-def create_shopify_credential(user_id: str, shop_subdomain: str) -> Optional[str]:
+def create_shopify_credential(user_id: str, shop_subdomain: str, connector_id: str) -> Optional[str]:
     """Step 4: Create Shopify credential (OAuth)."""
 
     print("\n=== Creating Shopify credential ===")
     response = _safe_request(
         "POST",
         f"/users/{user_id}/credentials",
-        json={"connectorId": "shopify", "shopSubdomain": shop_subdomain},
+        json={"connectorId": connector_id, "shopSubdomain": shop_subdomain},
     )
     if response is None:
         return None
@@ -159,8 +161,8 @@ def create_shopify_credential(user_id: str, shop_subdomain: str) -> Optional[str
             print(f"   {oauth_url}")
             input("\n⏳ After authorizing, press Enter to continue...")
             print("\n  Fetching credential ID...")
-            creds = list_credentials(user_id, "shopify")
-            credential_id = _pick_first_credential(creds, "shopify")
+            creds = list_credentials(user_id, connector_id)
+            credential_id = _pick_first_credential(creds, connector_id)
             if credential_id:
                 print("✓ Shopify credential created!")
                 print(f"  Credential ID: {credential_id}")
@@ -177,14 +179,14 @@ def create_shopify_credential(user_id: str, shop_subdomain: str) -> Optional[str
     return None
 
 
-def create_slack_credential(user_id: str) -> Optional[str]:
+def create_slack_credential(user_id: str, connector_id: str) -> Optional[str]:
     """Step 5: Create Slack credential (OAuth)."""
 
     print("\n=== Creating Slack credential ===")
     response = _safe_request(
         "POST",
         f"/users/{user_id}/credentials",
-        json={"connectorId": "slack"},
+        json={"connectorId": connector_id},
     )
     if response is None:
         return None
@@ -198,8 +200,8 @@ def create_slack_credential(user_id: str) -> Optional[str]:
             print(f"   {oauth_url}")
             input("\n⏳ After authorizing, press Enter to continue...")
             print("\n  Fetching credential ID...")
-            creds = list_credentials(user_id, "slack")
-            credential_id = _pick_first_credential(creds, "slack")
+            creds = list_credentials(user_id, connector_id)
+            credential_id = _pick_first_credential(creds, connector_id)
             if credential_id:
                 print("✓ Slack credential created!")
                 print(f"  Credential ID: {credential_id}")
@@ -237,15 +239,30 @@ def main() -> None:
     if not user_id:
         sys.exit(1)
 
-    list_connectors()
-    get_credential_requirements("shopify")
-    get_credential_requirements("slack")
+    shopify_connector, slack_connector = list_connectors()
+    if not shopify_connector or not slack_connector:
+        print("✗ Required connectors not available. Please verify your API key permissions.")
+        sys.exit(1)
+
+    if not get_credential_requirements(SHOPIFY_CONNECTOR_ID):
+        print("✗ Unable to fetch Shopify credential requirements.")
+        sys.exit(1)
+    if not get_credential_requirements(SLACK_CONNECTOR_ID):
+        print("✗ Unable to fetch Slack credential requirements.")
+        sys.exit(1)
 
     shop_subdomain = input(
         "\nEnter your Shopify store subdomain (e.g., 'my-store' from my-store.myshopify.com): "
     ).strip()
-    shopify_cred_id = create_shopify_credential(user_id, shop_subdomain)
-    slack_cred_id = create_slack_credential(user_id)
+    shopify_cred_id = create_shopify_credential(user_id, shop_subdomain, SHOPIFY_CONNECTOR_ID)
+    if not shopify_cred_id:
+        print("✗ Shopify credential setup failed. Exiting.")
+        sys.exit(1)
+
+    slack_cred_id = create_slack_credential(user_id, SLACK_CONNECTOR_ID)
+    if not slack_cred_id:
+        print("✗ Slack credential setup failed. Exiting.")
+        sys.exit(1)
 
     print("\n" + "=" * 60)
     print("✓ Setup Complete!")
@@ -258,8 +275,8 @@ def main() -> None:
         print(f"  SLACK_CREDENTIAL_ID={slack_cred_id}")
 
     print("\nConnector IDs (already correct):")
-    print("  SHOPIFY_CONNECTOR_ID=shopify")
-    print("  SLACK_CONNECTOR_ID=slack")
+    print(f"  SHOPIFY_CONNECTOR_ID={SHOPIFY_CONNECTOR_ID}")
+    print(f"  SLACK_CONNECTOR_ID={SLACK_CONNECTOR_ID}")
     print("\n⚠️  Don't forget to also add your SLACK_CHANNEL_ID!")
 
 

@@ -31,6 +31,8 @@ class ShopifySlackIntegration:
             api_key=settings.alloy_api_key,
             api_version=settings.alloy_api_version,
         )
+        self.shopify_connector_id = settings.shopify_connector_id
+        self.slack_connector_id = settings.slack_connector_id
         self.order_processor = OrderProcessor(threshold=settings.order_value_threshold)
         self.slack_formatter = SlackMessageFormatter(
             shopify_store_domain=settings.shopify_store_domain
@@ -76,6 +78,7 @@ class ShopifySlackIntegration:
                 limit=50,
                 status="any",
                 created_at_min=created_at_min,
+                connector_id=self.shopify_connector_id,
             )
         except ConnectivityAPIError as exc:
             logger.error("Failed to fetch Shopify orders: %s", exc)
@@ -105,6 +108,7 @@ class ShopifySlackIntegration:
                     credential_id=settings.slack_credential_id,
                     channel=settings.slack_channel_id,
                     blocks=blocks,
+                    connector_id=self.slack_connector_id,
                 )
                 sent += 1
             except ConnectivityAPIError as exc:

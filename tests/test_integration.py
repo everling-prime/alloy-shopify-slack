@@ -12,8 +12,11 @@ from src.connectivity_client import AlloyConnectivityClient  # noqa: E402
 from src.order_processor import OrderProcessor  # noqa: E402
 from src.slack_formatter import SlackMessageFormatter  # noqa: E402
 
+SHOPIFY_CONNECTOR_ID = settings.shopify_connector_id
+SLACK_CONNECTOR_ID = settings.slack_connector_id
 
-def test_list_connectors() -> None:
+
+def step_list_connectors() -> None:
     """Test 1: List available connectors."""
 
     print("\n=== Test 1: List Connectors ===")
@@ -31,7 +34,7 @@ def test_list_connectors() -> None:
         print("  ✓ Slack connector available")
 
 
-def test_list_credentials() -> None:
+def step_list_credentials() -> None:
     """Test 2: List user credentials."""
 
     print("\n=== Test 2: List User Credentials ===")
@@ -45,7 +48,7 @@ def test_list_credentials() -> None:
         print(f"  - {cred.get('connectorId')}: {cred.get('credentialId')}")
 
 
-def test_read_shopify_orders() -> None:
+def step_read_shopify_orders() -> None:
     """Test 3: READ from Shopify via Connectivity API."""
 
     print("\n=== Test 3: Read Orders from Shopify ===")
@@ -57,6 +60,7 @@ def test_read_shopify_orders() -> None:
         user_id=settings.alloy_user_id,
         credential_id=settings.shopify_credential_id,
         limit=5,
+        connector_id=SHOPIFY_CONNECTOR_ID,
     )
     print(f"✓ Successfully fetched {len(orders)} orders via Connectivity API")
     if orders:
@@ -66,7 +70,7 @@ def test_read_shopify_orders() -> None:
         )
 
 
-def test_process_orders() -> None:
+def step_process_orders() -> None:
     """Test 4: Process and filter orders."""
 
     print("\n=== Test 4: Process Orders ===")
@@ -98,7 +102,7 @@ def test_process_orders() -> None:
         print(f"  Order: #{summary['order_number']} (${summary['total']:.2f})")
 
 
-def test_format_slack_message() -> None:
+def step_format_slack_message() -> None:
     """Test 5: Format Slack message."""
 
     print("\n=== Test 5: Format Slack Message ===")
@@ -119,7 +123,7 @@ def test_format_slack_message() -> None:
     print(f"  Header: {blocks[0]['text']['text']}")
 
 
-def test_write_slack_message() -> None:
+def step_write_slack_message() -> None:
     """Test 6: WRITE to Slack via Connectivity API."""
 
     print("\n=== Test 6: Write to Slack ===")
@@ -149,6 +153,7 @@ def test_write_slack_message() -> None:
         credential_id=settings.slack_credential_id,
         channel=settings.slack_channel_id,
         blocks=blocks,
+        connector_id=SLACK_CONNECTOR_ID,
     )
     print("✓ Test message sent via Connectivity API")
     print(f"  Check Slack channel: {settings.slack_channel_id}")
@@ -159,12 +164,12 @@ def run_all_tests() -> None:
     print("Shopify-Slack Integration Tests (Connectivity API)")
     print("=" * 60)
     try:
-        test_list_connectors()
-        test_list_credentials()
-        test_read_shopify_orders()
-        test_process_orders()
-        test_format_slack_message()
-        test_write_slack_message()
+        step_list_connectors()
+        step_list_credentials()
+        step_read_shopify_orders()
+        step_process_orders()
+        step_format_slack_message()
+        step_write_slack_message()
         print("\n" + "=" * 60)
         print("✓ All tests passed!")
         print("=" * 60)
