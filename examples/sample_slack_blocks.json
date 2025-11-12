@@ -1,0 +1,46 @@
+[
+  {
+    "type": "header",
+    "text": {
+      "type": "plain_text",
+      "text": "🎉 High-Value Order: #1234"
+    }
+  },
+  {
+    "type": "section",
+    "fields": [
+      {
+        "type": "mrkdwn",
+        "text": "*Total Amount:*\nUSD $1,250.00"
+      },
+      {
+        "type": "mrkdwn",
+        "text": "*Items:*\n3 item(s)"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*Order Items:*\n• 2× Premium Wireless Headphones ($299.99)\n• 1× Laptop Stand ($149.99)"
+    }
+  },
+  {
+    "type": "divider"
+  },
+  {
+    "type": "actions",
+    "elements": [
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "text": "View in Shopify Admin"
+        },
+        "url": "https://admin.shopify.com/store/your-store/orders/4302345678901",
+        "style": "primary"
+      }
+    ]
+  }
+]
