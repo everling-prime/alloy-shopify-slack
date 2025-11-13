@@ -6,7 +6,9 @@ import argparse
 import logging
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import List
 
 from src.config import settings
 from src.connectivity_client import AlloyConnectivityClient, ConnectivityAPIError
@@ -14,7 +16,7 @@ from src.order_processor import OrderProcessor
 from src.slack_formatter import SlackMessageFormatter
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format="[%(levelname)s] %(asctime)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
@@ -22,11 +24,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class ConsoleReporter:
+    """Lightweight helper for human-friendly console sections."""
+
+    def section(self, title: str) -> None:
+        bar = "=" * len(title)
+        print(f"\n{bar}\n{title}\n{bar}")
+
+    def info(self, message: str) -> None:
+        print(f"• {message}")
+
+    def success(self, message: str) -> None:
+        print(f"✓ {message}")
+
+    def warning(self, message: str) -> None:
+        print(f"! {message}")
+
+    def error(self, message: str) -> None:
+        print(f"✗ {message}")
+
+    def summary(self, rows: List[tuple[str, str]]) -> None:
+        width = max(len(label) for label, _ in rows)
+        for label, value in rows:
+            print(f"{label:<{width}} : {value}")
+
+
+@dataclass
+class RunStats:
+    """Tracks metrics from a single run."""
+
+    total_orders: int = 0
+    high_value_orders: int = 0
+    slack_messages_sent: int = 0
+    errors: List[str] = field(default_factory=list)
+
+
 class ShopifySlackIntegration:
     """Coordinates Connectivity API calls, processing, and Slack notifications."""
 
     def __init__(self) -> None:
-        logger.info("Initializing Shopify → Slack integration using Connectivity API")
         self.client = AlloyConnectivityClient(
             api_key=settings.alloy_api_key,
             api_version=settings.alloy_api_version,
@@ -37,6 +73,7 @@ class ShopifySlackIntegration:
         self.slack_formatter = SlackMessageFormatter(
             shopify_store_domain=settings.shopify_store_domain
         )
+        self.reporter = ConsoleReporter()
         self.last_check = datetime.now(timezone.utc) - timedelta(hours=24)
 
     def verify_setup(self) -> bool:
@@ -44,7 +81,8 @@ class ShopifySlackIntegration:
         Prefer connector-based listing (per docs) to avoid 401s from /users endpoint.
         """
 
-        logger.info("Verifying Connectivity API credentials for user %s", settings.alloy_user_id)
+        self.reporter.section("Step 1: Verify Credentials")
+        self.reporter.info(f"Alloy User ID: {settings.alloy_user_id}")
 
         # Try connector-based listing first
         try:
@@ -81,19 +119,20 @@ class ShopifySlackIntegration:
         if missing:
             for cid in missing:
                 label = required_credentials.get(cid, "Unknown")
-                logger.error("Missing credential %s (%s)", cid, label)
+                self.reporter.error(f"Missing credential {cid} ({label})")
             return False
 
-        logger.info("All required credentials were found")
+        self.reporter.success("All required credentials were found.")
         return True
 
-    def process_orders(self) -> int:
+    def process_orders(self) -> RunStats:
         """Execute listOrders, filter, and post Slack notifications."""
 
+        stats = RunStats()
+
         created_at_min = self._format_shopify_timestamp(self.last_check)
-        logger.info(
-            "Fetching Shopify orders created after %s via Connectivity API", created_at_min
-        )
+        self.reporter.section("Step 2: Fetch Shopify Orders")
+        self.reporter.info(f"Created after: {created_at_min}")
 
         # Build Shopify GraphQL query for filtering by created date
         # Format: "created_at:>='2024-01-01T00:00:00Z'"
@@ -108,28 +147,35 @@ class ShopifySlackIntegration:
                 connector_id=self.shopify_connector_id,
             )
         except ConnectivityAPIError as exc:
-            logger.error("Failed to fetch Shopify orders: %s", exc)
-            return 0
+            stats.errors.append(f"Failed to fetch Shopify orders: {exc}")
+            self.reporter.error(stats.errors[-1])
+            return stats
+
+        stats.total_orders = len(orders)
+        self.reporter.info(f"Total orders returned: {stats.total_orders}")
 
         if not orders:
-            logger.info("No new orders returned by Shopify")
+            self.reporter.warning("No new orders returned by Shopify.")
             self.last_check = datetime.now(timezone.utc)
-            return 0
+            return stats
 
         high_value_orders = self.order_processor.filter_high_value_orders(orders)
+        stats.high_value_orders = len(high_value_orders)
+
         if not high_value_orders:
-            logger.info("No orders exceeded the threshold")
+            self.reporter.warning("No orders exceeded the configured threshold.")
             self.last_check = datetime.now(timezone.utc)
-            return 0
+            return stats
+
+        self.reporter.section("Step 3: Notify Slack")
+        self.reporter.info(f"High-value orders identified: {stats.high_value_orders}")
 
         sent = 0
         for order in high_value_orders:
             summary = self.order_processor.extract_order_summary(order)
             blocks = self.slack_formatter.format_order_notification(summary)
             try:
-                logger.info(
-                    "Posting Slack notification for order #%s", summary.get("order_number")
-                )
+                self.reporter.info(f"Posting Slack notification for order #{summary.get('order_number')}")
                 self.client.post_message_slack(
                     user_id=settings.alloy_user_id,
                     credential_id=settings.slack_credential_id,
@@ -139,43 +185,56 @@ class ShopifySlackIntegration:
                 )
                 sent += 1
             except ConnectivityAPIError as exc:
-                logger.error("Failed to notify Slack for order %s: %s", summary.get("order_number"), exc)
+                error_message = f"Failed to notify Slack for order {summary.get('order_number')}: {exc}"
+                stats.errors.append(error_message)
+                self.reporter.error(error_message)
 
         self.last_check = datetime.now(timezone.utc)
-        return sent
+        stats.slack_messages_sent = sent
+        return stats
 
     def run_once(self) -> None:
         if not self.verify_setup():
             logger.error("Setup verification failed; exiting")
             sys.exit(1)
-        logger.info(
-            "Monitoring for orders ≥ %.2f; Slack channel %s",
-            settings.order_value_threshold,
-            settings.slack_channel_id,
-        )
-        notifications = self.process_orders()
-        logger.info("Run complete; sent %s notification(s)", notifications)
+        stats = self.process_orders()
+        self._render_summary(stats)
 
     def run_continuous(self) -> None:
         if not self.verify_setup():
             logger.error("Setup verification failed; exiting")
             sys.exit(1)
 
-        logger.info(
-            "Starting continuous polling every %s seconds (threshold %.2f)",
-            settings.check_interval_seconds,
-            settings.order_value_threshold,
+        self.reporter.section("Continuous Mode")
+        self.reporter.info(
+            f"Polling every {settings.check_interval_seconds}s (threshold {settings.order_value_threshold:.2f})"
         )
-        logger.info("Press Ctrl+C to stop")
+        self.reporter.info("Press Ctrl+C to stop")
 
         try:
             while True:
-                sent = self.process_orders()
-                if sent:
-                    logger.info("Sent %s notification(s) this cycle", sent)
+                stats = self.process_orders()
+                self._render_summary(stats)
                 time.sleep(settings.check_interval_seconds)
         except KeyboardInterrupt:
-            logger.info("Integration stopped by user")
+            self.reporter.warning("Integration stopped by user.")
+
+    def _render_summary(self, stats: RunStats) -> None:
+        self.reporter.section("Run Summary")
+        rows = [
+            ("Shopify orders fetched", str(stats.total_orders)),
+            ("High-value orders", str(stats.high_value_orders)),
+            ("Slack messages sent", str(stats.slack_messages_sent)),
+            ("Threshold (USD)", f"{settings.order_value_threshold:.2f}"),
+            ("Slack channel", settings.slack_channel_id),
+        ]
+        self.reporter.summary(rows)
+        if stats.errors:
+            self.reporter.warning("Errors occurred:")
+            for err in stats.errors:
+                self.reporter.error(f"  {err}")
+        else:
+            self.reporter.success("Completed without errors.")
 
     @staticmethod
     def _format_shopify_timestamp(moment: datetime) -> str:

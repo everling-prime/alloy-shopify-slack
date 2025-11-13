@@ -2,7 +2,63 @@
 
 This guide walks through every step required to run the Shopify → Slack demo using Alloy's Connectivity API.
 
-## 1. Core Concepts
+## 1. Quick Start (Python Scripts)
+
+1. Install uv + Python 3.11.
+2. Copy `.env.example` → `.env` (optional; the script will do this if you skip it).
+3. Run the bootstrap script and answer the prompts for your Alloy API key, Shopify store, Slack channel, etc.:
+
+   ```bash
+   uv run python scripts/bootstrap_demo.py
+   ```
+
+   The script installs dependencies, provisions the Alloy user + OAuth credentials, updates `.env`, and runs the verification helper—no manual cURL calls required.
+
+## 2. Automation Helpers
+
+### 2.1 `setup_credentials.py`
+
+Run the lower-level CLI directly when you want to skip the full bootstrapper:
+
+```bash
+uv run python setup_credentials.py \
+  --api-key $ALLOY_API_KEY \
+  --shop-domain your-store \
+  --username your-email \
+  --full-name "Demo User" \
+  --non-interactive
+```
+
+Useful flags:
+
+- `--slack-channel` – seed `SLACK_CHANNEL_ID` in `.env`.
+- `--no-browser` – print OAuth URLs instead of launching them.
+- `--non-interactive` – fail if required data is missing instead of prompting.
+
+### 2.2 Verification Utilities
+
+```bash
+uv run python scripts/verify_connectivity.py status
+uv run python scripts/verify_connectivity.py list-orders --limit 5
+uv run python scripts/verify_connectivity.py chat-post --dry-run
+```
+
+### 2.3 Make Targets
+
+| Target | Description |
+| ------ | ----------- |
+| `make bootstrap` | Runs the interactive bootstrap script. |
+| `make run` | Executes the single-pass workflow (`uv run python -m src.main`). |
+| `make run-continuous` | Polls Shopify continuously. |
+| `make verify` | Displays connector + credential status. |
+
+---
+
+## 3. Manual API Walkthrough (Raw HTTP)
+
+Prefer to see the raw HTTP requests? The remainder of this document keeps the original cURL-based instructions.
+
+### Core Concepts
 
 | Term | Description |
 | ---- | ----------- |
@@ -14,7 +70,7 @@ This guide walks through every step required to run the Shopify → Slack demo u
 
 Every execution requires the tuple: `(userId, connectorId, actionId, credentialId)`.
 
-## 2. Create a Connectivity API User
+### Create a Connectivity API User
 
 1. Generate an API key in the Alloy dashboard.
 2. Call `POST https://production.runalloy.com/users` using `Authorization: Bearer <API_KEY>`.
@@ -29,7 +85,7 @@ curl -X POST https://production.runalloy.com/users \
   -d '{"username": "merchant_acme", "fullName": "Merchant ACME"}'
 ```
 
-## 3. Inspect Credential Requirements
+### Inspect Credential Requirements
 
 Before creating credentials, fetch the connector's metadata to understand which fields are required (e.g., `redirectUri`, `shopSubdomain`, scopes):
 
@@ -41,7 +97,7 @@ curl -X GET https://production.runalloy.com/connectors/shopify/credentials/metad
 
 The response contains a `metadata` array describing `authenticationType` plus the property list (name + `required` flag). Use this to build the credential payload.
 
-## 4. Shopify Credential via OAuth
+### Shopify Credential via OAuth
 
 1. Call `POST https://production.runalloy.com/connectors/shopify/credentials`:
    ```json
@@ -56,7 +112,7 @@ The response contains a `metadata` array describing `authenticationType` plus th
 3. After authorization, query `GET /users/{userId}/credentials?connectorId=shopify` to retrieve the resulting `credentialId`.
 4. Store the ID in `.env` as `SHOPIFY_CREDENTIAL_ID`.
 
-## 5. Slack Credential via OAuth
+### Slack Credential via OAuth
 
 Repeat with the Slack connector:
 
@@ -74,7 +130,7 @@ curl -X POST https://production.runalloy.com/connectors/slack/credentials \
 
 Redirect the user to the returned `oauthUrl`, then look up the Slack `credentialId` the same way.
 
-## 5. Discover Connector & Action IDs
+### Discover Connector & Action IDs
 
 - `GET /connectors` – verify `shopify` and `slack` connectors are available.
 - `GET /connectors/{connectorId}/actions` – list actions for each connector.
@@ -85,7 +141,7 @@ For this demo we rely on:
 - Shopify `listOrders` (READ)
 - Slack `chat_postMessage` (WRITE)
 
-## 6. Test Action Executions
+### Test Action Executions
 
 Use `POST /connectors/{connectorId}/actions/{actionId}/execute` with the `x-alloy-userid` header to validate credentials before running the Python app.
 
@@ -125,14 +181,14 @@ curl -X POST https://production.runalloy.com/connectors/slack/actions/chat_postM
 
 Confirm the responses succeed before wiring everything together.
 
-## 7. Configure the Demo Application
+### Configure the Demo Application
 
 1. `cp .env.example .env` and set every variable (API key, user ID, credential IDs, Slack channel, optional store domain).
 2. Run `uv sync` to install dependencies.
 3. Execute `uv run python -m src.main` for a single pass or use `--continuous` for polling.
 4. Optionally run `uv run python tests/test_integration.py` to step through the READ/WRITE tests. The script prompts before sending a Slack message.
 
-### Automated Helper Script
+#### Automated Helper Script
 
 The repository includes `setup_credentials.py`, which **fully automates** the credential provisioning process:
 
@@ -160,7 +216,7 @@ Once configured the demo will:
 2. Apply the order value threshold.
 3. Post Slack messages using the stored credentials.
 
-## 8. Extending the Demo: Interactive Buttons
+### Extending the Demo: Interactive Buttons
 
 The Slack notifications include an "Acknowledge Order" button as a placeholder example of how you could extend this integration using Alloy's Connectivity API.
 

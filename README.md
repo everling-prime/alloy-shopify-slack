@@ -57,6 +57,7 @@ This button is currently non-functional but shows how Alloy enables multi-connec
 │   ├── slack_formatter.py     # Slack Block Kit formatting helpers
 │   └── main.py                # Shopify → Slack workflow
 ├── setup_credentials.py       # Automated OAuth credential setup
+├── scripts/                   # Bootstrap + verification helpers
 ├── tests/test_integration.py  # End-to-end Connectivity API checks
 ├── examples/                  # Sample responses/payloads
 ├── docs/SETUP.md              # Detailed setup guide
@@ -64,39 +65,58 @@ This button is currently non-functional but shows how Alloy enables multi-connec
 └── pyproject.toml             # uv / Python project file
 ```
 
-## Prerequisites & Setup
+## Quick Start (Automated Setup)
 
-1. **Sign up at [runalloy.com](https://runalloy.com)** and create an API key from the dashboard.
-2. **Install uv** (https://github.com/astral-sh/uv) and Python 3.11.
-3. **Create a Connectivity API user** with `POST /users` supplying both `username` and `fullName`, then save the returned `userId`.
-4. **Check credential requirements** per connector via `GET /connectors/{connectorId}/credentials/metadata` to learn which fields (e.g., `redirectUri`, `shopSubdomain`) are mandatory.
-5. **Create a Shopify credential**
-   - Call `POST /connectors/shopify/credentials` with `userId`, `authenticationType`, and `redirectUri` (plus any metadata-required properties).
-   - Redirect the merchant to the returned `oauthUrl` and capture the `credentialId` once authorization completes.
-6. **Create a Slack credential** via `POST /connectors/slack/credentials` using the same flow.
-7. **Bootstrap credentials (automated helper script)** – run the fully automated setup:
-   ```bash
-   uv run python setup_credentials.py
-   ```
-   The script will:
-   - Start a local OAuth callback server on http://localhost:8080
-   - Create or use an existing user
-   - Show connector metadata
-   - Automatically open your browser for Shopify OAuth authorization
-   - Capture the credential and save it to `.env`
-   - Repeat the process for Slack
-   - Update your `.env` file with all credential IDs automatically
+1. **Install uv + Python 3.11, clone the repo, and `cd` into it.**
+2. **Run the bootstrap script** and answer the prompts for your Alloy API key, Shopify store, Slack channel, etc. The script creates `.env` automatically:
 
-   No manual copying of credentials needed!
-8. **Copy `.env.example` to `.env`** and populate every setting:
    ```bash
-   cp .env.example .env
-   # edit the file with your ALLOY_API_KEY, USER_ID, credential IDs, Slack channel, etc.
+   uv run python scripts/bootstrap_demo.py
    ```
-9. **Install dependencies** (handled automatically if you ran `uv init`, but you can re-sync at any time):
-   ```bash
-   uv sync
-   ```
+
+   The script:
+
+   - Runs `uv sync` to install dependencies.
+   - Seeds `.env` with your API key, Shopify store, and Slack channel.
+   - Starts a local OAuth callback server on `http://localhost:8080/callback`.
+   - Creates (or reuses) a Connectivity API user.
+   - Performs both Shopify + Slack OAuth flows without manual cURL commands.
+   - Writes the resulting `ALLOY_USER_ID`, `SHOPIFY_CREDENTIAL_ID`, and `SLACK_CREDENTIAL_ID` to `.env`.
+   - Calls the verification helper to ensure both actions succeed.
+
+Need a more surgical flow (or to re-run a subset)? The lower-level CLI exposes the same building blocks:
+
+```bash
+uv run python setup_credentials.py \
+  --api-key "runalloy_xxx" \
+  --shop-domain your-store \
+  --username your-email \
+  --full-name "Your Name" \
+  --non-interactive \
+  --no-browser         # optional: prints OAuth URLs instead
+```
+
+> Prefer the raw HTTP walkthrough? See the “Manual API Walkthrough” section in `docs/SETUP.md`.
+
+### Useful Make/uv Targets
+
+```bash
+make bootstrap   # runs scripts/bootstrap_demo.py (interactive prompts)
+make run         # uv run python -m src.main
+make verify      # quick status check via scripts/verify_connectivity.py
+```
+
+### Verification Helpers
+
+Use the Python verifier instead of hand-written curl snippets:
+
+```bash
+uv run python scripts/verify_connectivity.py status        # connectors + credentials
+uv run python scripts/verify_connectivity.py list-orders   # fetch Shopify orders
+uv run python scripts/verify_connectivity.py chat-post --dry-run
+```
+
+All helpers rely on `.env` / environment variables, so storing secrets in `.env` keeps commands simple.
 
 ## Running the Integration
 

@@ -9,6 +9,3 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
 ]
-
-[project.scripts]
-shopify_slack_integration = "src.main:main"

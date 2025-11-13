@@ -48,7 +48,7 @@ class OrderProcessor:
                 logger.warning("Skipping order #%s with invalid total: %s", order_num, total_price_value)
                 continue
 
-            logger.info(
+            logger.debug(
                 "Order #%s: total=%.2f, threshold=%.2f, qualifies=%s",
                 order_num,
                 total,
@@ -58,11 +58,7 @@ class OrderProcessor:
 
             if total >= self.threshold:
                 qualifying.append(order)
-                logger.info(
-                    "High-value order detected: #%s (%.2f)",
-                    order_num,
-                    total,
-                )
+                logger.debug("High-value order detected: #%s (%.2f)", order_num, total)
 
         logger.info("Filtered %s/%s orders above threshold", len(qualifying), len(orders))
         return qualifying
