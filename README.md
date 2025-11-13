@@ -1,6 +1,6 @@
 # Shopify → Slack Connectivity API Demo
 
-This project showcases how to use [Alloy's Connectivity API](https://docs.runalloy.com/reference/connectivity-api/) to *directly* execute connector actions without workflows. It reads high-value Shopify orders using the `listOrders` action and posts notifications to Slack using the `postMessage` action.
+This project showcases how to use [Alloy's Connectivity API](https://docs.runalloy.com/reference/connectivity-api/) to *directly* execute connector actions without workflows. It reads high-value Shopify orders using the `listOrders` action and posts notifications to Slack using the `chat_postMessage` action.
 
 ## Connectivity API Overview
 
@@ -10,7 +10,7 @@ The Connectivity API exposes every Alloy connector as REST resources so you can:
 - Programmatically create users and credentials (OAuth/API keys).
 - Execute actions on behalf of a user by referencing connector IDs and credential IDs.
 
-Each request is a standard HTTP call against `https://api.runalloy.com/2025-09/` with the following headers:
+Each request is a standard HTTP call against `https://production.runalloy.com` with the following headers:
 
 ```
 Authorization: Bearer <ALLOY_API_KEY>
@@ -23,17 +23,29 @@ Unlike the Embedded/Unified API, Connectivity gives you direct, low-level access
 ## Authentication & Provisioning Flow
 
 1. **Create a user** via `POST /users` to represent your merchant/tenant and store the returned `userId`.
-2. **Create credentials** for that user via `POST /users/{userId}/credentials`:
-   - For OAuth connectors (Shopify, Slack) redirect the merchant to the `oauthUrl` and capture the resulting `credentialId`.
-   - For API key connectors, send the credentials payload directly and store the `credentialId`.
-3. **Execute actions** by providing `userId`, `connectorId`, `actionId`, and `credentialId` to `POST /users/{userId}/executions`.
+2. **Create credentials** for that user by:
+   - Fetching connector requirements via `GET /connectors/{connectorId}/credentials/metadata`.
+   - Calling `POST /connectors/{connectorId}/credentials` with `userId`, `authenticationType`, `redirectUri`, and any connector-specific properties (e.g., `data.shopName` for Shopify).
+   - Redirecting the merchant to the returned `oauthUrl` (for OAuth connectors) and capturing the resulting `credentialId`.
+3. **Execute actions** by calling `POST /connectors/{connectorId}/actions/{actionId}/execute` with the `x-alloy-userid` header and providing `credentialId` in the request body.
 
 The `userId` + `credentialId` pair is all the code needs to invoke Shopify and Slack on behalf of the merchant.
 
 ## READ/WRITE Demo Flow
 
 - **READ** – `listOrders` on the Shopify connector retrieves recent orders. Orders above the configured dollar threshold are considered high-value.
-- **WRITE** – For each qualifying order, the app calls Slack's `postMessage` action to send a richly formatted Block Kit notification to the configured channel.
+- **WRITE** – For each qualifying order, the app calls Slack's `chat_postMessage` action to send a richly formatted Block Kit notification to the configured channel.
+
+### Extension Opportunity: Interactive Buttons
+
+The Slack notifications include an "Acknowledge Order" button as a placeholder example. This demonstrates how you could extend the integration using Alloy's Connectivity API to:
+
+- Handle Slack interactive component callbacks via a webhook server
+- Update the Slack message using the `chat_update` action
+- Log acknowledgments to Google Sheets using the `appendRow` action
+- Chain multiple connector actions together (Shopify → Slack → Google Sheets)
+
+This button is currently non-functional but shows how Alloy enables multi-connector orchestration beyond basic read/write operations.
 
 ## Project Structure
 
@@ -44,6 +56,7 @@ The `userId` + `credentialId` pair is all the code needs to invoke Shopify and S
 │   ├── order_processor.py     # Business logic for filtering orders
 │   ├── slack_formatter.py     # Slack Block Kit formatting helpers
 │   └── main.py                # Shopify → Slack workflow
+├── setup_credentials.py       # Automated OAuth credential setup
 ├── tests/test_integration.py  # End-to-end Connectivity API checks
 ├── examples/                  # Sample responses/payloads
 ├── docs/SETUP.md              # Detailed setup guide
@@ -55,22 +68,32 @@ The `userId` + `credentialId` pair is all the code needs to invoke Shopify and S
 
 1. **Sign up at [runalloy.com](https://runalloy.com)** and create an API key from the dashboard.
 2. **Install uv** (https://github.com/astral-sh/uv) and Python 3.11.
-3. **Create a Connectivity API user** with `POST /users` and save the returned `userId`.
-4. **Create a Shopify credential**
-   - Call `POST /users/{userId}/credentials` with `connectorId=shopify`.
+3. **Create a Connectivity API user** with `POST /users` supplying both `username` and `fullName`, then save the returned `userId`.
+4. **Check credential requirements** per connector via `GET /connectors/{connectorId}/credentials/metadata` to learn which fields (e.g., `redirectUri`, `shopSubdomain`) are mandatory.
+5. **Create a Shopify credential**
+   - Call `POST /connectors/shopify/credentials` with `userId`, `authenticationType`, and `redirectUri` (plus any metadata-required properties).
    - Redirect the merchant to the returned `oauthUrl` and capture the `credentialId` once authorization completes.
-5. **Create a Slack credential** following the same OAuth pattern (`connectorId=slack`).
-6. **Bootstrap credentials (optional helper script)** – if you prefer guided prompts, run:
+6. **Create a Slack credential** via `POST /connectors/slack/credentials` using the same flow.
+7. **Bootstrap credentials (automated helper script)** – run the fully automated setup:
    ```bash
    uv run python setup_credentials.py
    ```
-   The script creates a user, shows connector metadata, walks through Shopify + Slack OAuth, and prints the credential IDs to add to `.env`.
-7. **Copy `.env.example` to `.env`** and populate every setting:
+   The script will:
+   - Start a local OAuth callback server on http://localhost:8080
+   - Create or use an existing user
+   - Show connector metadata
+   - Automatically open your browser for Shopify OAuth authorization
+   - Capture the credential and save it to `.env`
+   - Repeat the process for Slack
+   - Update your `.env` file with all credential IDs automatically
+
+   No manual copying of credentials needed!
+8. **Copy `.env.example` to `.env`** and populate every setting:
    ```bash
    cp .env.example .env
    # edit the file with your ALLOY_API_KEY, USER_ID, credential IDs, Slack channel, etc.
    ```
-8. **Install dependencies** (handled automatically if you ran `uv init`, but you can re-sync at any time):
+9. **Install dependencies** (handled automatically if you ran `uv init`, but you can re-sync at any time):
    ```bash
    uv sync
    ```

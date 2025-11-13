@@ -14,7 +14,7 @@ from src.order_processor import OrderProcessor
 from src.slack_formatter import SlackMessageFormatter
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(levelname)s] %(asctime)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
@@ -40,25 +40,48 @@ class ShopifySlackIntegration:
         self.last_check = datetime.now(timezone.utc) - timedelta(hours=24)
 
     def verify_setup(self) -> bool:
-        """Ensure both Shopify and Slack credentials exist for the user."""
+        """Ensure both Shopify and Slack credentials exist for the user.
+        Prefer connector-based listing (per docs) to avoid 401s from /users endpoint.
+        """
 
         logger.info("Verifying Connectivity API credentials for user %s", settings.alloy_user_id)
+
+        # Try connector-based listing first
         try:
-            credentials = self.client.list_credentials(user_id=settings.alloy_user_id)
+            shopify_creds = self.client.list_credentials_for_connector(
+                self.shopify_connector_id, user_id=settings.alloy_user_id
+            )
+            slack_creds = self.client.list_credentials_for_connector(
+                self.slack_connector_id, user_id=settings.alloy_user_id
+            )
         except ConnectivityAPIError as exc:
-            logger.error("Unable to list credentials: %s", exc)
-            return False
+            logger.error("Unable to list credentials via connector endpoints: %s", exc)
+            # Fallback to user endpoint if connector listing fails
+            try:
+                combined = self.client.list_credentials(user_id=settings.alloy_user_id)
+                shopify_creds = [c for c in combined if c.get("credentialId")]
+                slack_creds = shopify_creds  # reuse combined since we only check IDs below
+            except ConnectivityAPIError as exc2:
+                logger.error("Unable to list credentials: %s", exc2)
+                return False
 
         required_credentials = {
             settings.shopify_credential_id: "Shopify",
             settings.slack_credential_id: "Slack",
         }
 
-        found = {cred.get("credentialId") for cred in credentials}
-        missing = [cid for cid in required_credentials if cid not in found]
+        shopify_found = {c.get("credentialId") for c in shopify_creds}
+        slack_found = {c.get("credentialId") for c in slack_creds}
+        missing = []
+        if settings.shopify_credential_id not in shopify_found:
+            missing.append(settings.shopify_credential_id)
+        if settings.slack_credential_id not in slack_found:
+            missing.append(settings.slack_credential_id)
+
         if missing:
             for cid in missing:
-                logger.error("Missing credential %s (%s)", cid, required_credentials[cid])
+                label = required_credentials.get(cid, "Unknown")
+                logger.error("Missing credential %s (%s)", cid, label)
             return False
 
         logger.info("All required credentials were found")
@@ -71,13 +94,17 @@ class ShopifySlackIntegration:
         logger.info(
             "Fetching Shopify orders created after %s via Connectivity API", created_at_min
         )
+
+        # Build Shopify GraphQL query for filtering by created date
+        # Format: "created_at:>='2024-01-01T00:00:00Z'"
+        query_filter = f"created_at:>='{created_at_min}'"
+
         try:
             orders = self.client.list_orders_shopify(
                 user_id=settings.alloy_user_id,
                 credential_id=settings.shopify_credential_id,
                 limit=50,
-                status="any",
-                created_at_min=created_at_min,
+                query=query_filter,
                 connector_id=self.shopify_connector_id,
             )
         except ConnectivityAPIError as exc:

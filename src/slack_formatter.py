@@ -105,20 +105,31 @@ class SlackMessageFormatter:
             {"type": "divider"},
         ]
 
+        # Add action buttons
+        action_elements = []
+
         if view_order_url:
-            blocks.append(
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "View in Shopify Admin"},
-                            "url": view_order_url,
-                            "style": "primary",
-                        }
-                    ],
-                }
-            )
+            action_elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View in Shopify Admin"},
+                "url": view_order_url,
+                "style": "primary",
+            })
+
+        # Add Acknowledge button (interactive button that triggers webhook)
+        action_elements.append({
+            "type": "button",
+            "text": {"type": "plain_text", "text": "✅ Acknowledge Order"},
+            "action_id": "acknowledge_order",
+            "value": f"{order_number}|{order_id}|{total}",  # Pass order data
+            "style": "danger",  # Makes it stand out
+        })
+
+        if action_elements:
+            blocks.append({
+                "type": "actions",
+                "elements": action_elements,
+            })
 
         return blocks
 
